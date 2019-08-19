@@ -72,8 +72,9 @@ class F1ResultsTrain(Callback):
 
 
 class HelixerSequence(Sequence):
-    def __init__(self, model, h5_file, exclude_errors, shuffle):
+    def __init__(self, model, h5_file, one_hot, exclude_errors, shuffle):
         self.model = model
+        self.one_hot = one_hot
         self.exclude_errors = exclude_errors
         self.batch_size = self.model.batch_size
         self.x_dset = h5_file['/data/X']
@@ -178,6 +179,7 @@ class HelixerModel(ABC):
         SequenceCls = self.sequence_cls()
         return SequenceCls(model=self,
                            h5_file=self.h5_train,
+                           one_hot=self.one_hot,
                            exclude_errors=self.exclude_errors,
                            shuffle=True)
 
@@ -188,6 +190,7 @@ class HelixerModel(ABC):
         SequenceCls = self.sequence_cls()
         return SequenceCls(model=self,
                            h5_file=self.h5_val,
+                           one_hot=self.one_hot,
                            exclude_errors=self.exclude_errors,
                            shuffle=False)
 
@@ -195,6 +198,7 @@ class HelixerModel(ABC):
         SequenceCls = self.sequence_cls()
         return SequenceCls(model=self,
                            h5_file=self.h5_test,
+                           one_hot=self.one_hot,
                            exclude_errors=self.exclude_errors,
                            shuffle=False)
 
@@ -247,10 +251,10 @@ class HelixerModel(ABC):
                 self.one_hot = True
                 if h5_file['/data/y'].shape[2] == 4:
                     self.merged_introns = True
-                    print('\nOne hot encoding data with merged introns found (dim=4)')
+                    print('\nOne hot encoding data with merged introns found (dim = 4)')
                 elif h5_file['/data/y'].shape[2] == 5:
                     self.merged_introns = False
-                    print('\nOne hot encoding data without merged introns found (dim=5)')
+                    print('\nOne hot encoding data without merged introns found (dim = 5)')
                 else:
                     print('\nUnknown data encoding')
                     exit()
