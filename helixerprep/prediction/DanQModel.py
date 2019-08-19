@@ -6,7 +6,8 @@ from keras_layer_normalization import LayerNormalization
 from keras.models import Sequential
 from keras.layers import (Conv1D, LSTM, CuDNNLSTM, Dense, Bidirectional, MaxPooling1D, Dropout, Reshape,
                           Activation)
-from HelixerModel import HelixerModel, HelixerSequence, acc_row, acc_g_row, acc_ig_row
+from HelixerModel import (HelixerModel, HelixerSequence,
+                          acc_row, acc_g_row, acc_ig_row, acc_ig_oh, acc_g_oh)
 
 
 class DanQSequence(HelixerSequence):
@@ -90,7 +91,11 @@ class DanQModel(HelixerModel):
             model.compile(optimizer=self.optimizer,
                           loss='categorical_crossentropy',
                           sample_weight_mode='temporal',
-                          metrics=['accuracy'])
+                          metrics=[
+                              'accuracy',
+                              acc_g_oh,
+                              acc_ig_oh,
+                          ])
         else:
             model.compile(optimizer=self.optimizer,
                           loss='binary_crossentropy',

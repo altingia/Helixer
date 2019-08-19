@@ -45,6 +45,20 @@ def acc_ig_row(y_true, y_pred):
     return K.cast(K.all(K.equal(y_true, K.round(y_pred)), axis=-1), K.floatx())
 
 
+def acc_g_oh(y_true, y_pred):
+    mask = y_true[:, :, :, 0] < 1  # opposite direction than from multi class
+    y_true = K.argmax(tf.boolean_mask(y_true, mask), axis=-1)
+    y_pred = K.argmax(tf.boolean_mask(y_pred, mask), axis=-1)
+    return K.cast(K.equal(y_true, y_pred), K.floatx())
+
+
+def acc_ig_oh(y_true, y_pred):
+    mask = y_true[:, :, :, 0] > 0
+    y_true = K.argmax(tf.boolean_mask(y_true, mask), axis=-1)
+    y_pred = K.argmax(tf.boolean_mask(y_pred, mask), axis=-1)
+    return K.cast(K.equal(y_true, y_pred), K.floatx())
+
+
 class ReportIntermediateResult(Callback):
     def __init__(self):
         super(ReportIntermediateResult, self).__init__()
@@ -69,6 +83,16 @@ class F1ResultsTrain(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         self.calculator.count_and_calculate(self.model)
+
+
+class ConfusionMatrix(Callback):
+    def __init__(self, generator):
+        self.calculator = F1Calculator(generator)
+        super(F1ResultsTrain, self).__init__()
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.calculator.count_and_calculate(self.model)
+
 
 
 class HelixerSequence(Sequence):
