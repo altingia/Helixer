@@ -52,6 +52,7 @@ class LSTMModel(HelixerModel):
         return model
 
     def compile_model(self, model):
+        if self.one_hot:
         model.compile(optimizer=self.optimizer,
                       loss='binary_crossentropy',
                       sample_weight_mode='temporal',

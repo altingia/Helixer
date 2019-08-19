@@ -8,7 +8,7 @@ db_path='/home/felix/Desktop/full_geenuff.sqlite3'
 for size in $@
 do
 	echo -e "\nsize: "$size"000"
-	local_folder="$local_main_folder"h5_data_"$size"k
+	local_folder="$local_main_folder"h5_data_"$size"k_one_hot_4
 
 	rm -r "$local_folder"/*
 

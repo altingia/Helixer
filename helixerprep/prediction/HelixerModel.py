@@ -154,7 +154,7 @@ class HelixerModel(ABC):
             ModelCheckpoint(self.save_model_path, monitor='val_acc_g_row', mode='max',
                             save_best_only=True, verbose=1),
         ]
-        if not self.no_f1_score:
+        if not self.no_f1_score and not self.one_hot:
             callbacks.append(F1ResultsTrain(self.gen_validation_data()))
         if self.nni:
             callbacks.append(ReportIntermediateResult())
@@ -238,6 +238,23 @@ class HelixerModel(ABC):
             ic_samples = np.array(h5_file['/data/fully_intergenic_samples'])
             return np.count_nonzero(ic_samples == True)
 
+        def detect_label_type(h5_file):
+            if h5_file['/data/y'].shape[2] == 3:
+                print('\nMulti class data found')
+                self.one_hot = False
+                self.merged_introns = False
+            else:
+                self.one_hot = True
+                if h5_file['/data/y'].shape[2] == 4:
+                    self.merged_introns = True
+                    print('\nOne hot encoding data with merged introns found (dim=4)')
+                elif h5_file['/data/y'].shape[2] == 5:
+                    self.merged_introns = False
+                    print('\nOne hot encoding data without merged introns found (dim=5)')
+                else:
+                    print('\nUnknown data encoding')
+                    exit()
+
         if not self.load_model_path:
             self.h5_train = h5py.File(os.path.join(self.data_dir, 'training_data.h5'), 'r')
             self.h5_val = h5py.File(os.path.join(self.data_dir, 'validation_data.h5'), 'r')
@@ -256,6 +273,7 @@ class HelixerModel(ABC):
 
             n_intergenic_train_seqs = get_n_intergenic_seqs(self.h5_train)
             n_intergenic_val_seqs = get_n_intergenic_seqs(self.h5_val)
+            detect_label_type(self.h5_train)
         else:
             self.h5_test = h5py.File(self.test_data, 'r')
             self.shape_test = self.h5_test['/data/X'].shape
@@ -265,6 +283,7 @@ class HelixerModel(ABC):
             else:
                 n_test_seqs_with_intergenic = self.shape_test[0]
             n_intergenic_test_seqs = get_n_intergenic_seqs(self.h5_test)
+            detect_label_type(self.h5_test)
 
         if self.verbose:
             print('\nData config: ')
