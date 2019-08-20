@@ -176,7 +176,7 @@ class HelixerModel(ABC):
             History(),
             CSVLogger('history.log'),
             EarlyStopping(monitor=self.stopping_metric, patience=self.patience, verbose=1),
-            ModelCheckpoint(self.save_model_path, monitor=self.stopping_metric mode='max',
+            ModelCheckpoint(self.save_model_path, monitor=self.stopping_metric, mode='max',
                             save_best_only=True, verbose=1),
         ]
         if not self.no_f1_score and not self.one_hot:
