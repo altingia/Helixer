@@ -175,8 +175,8 @@ class HelixerModel(ABC):
         callbacks = [
             History(),
             CSVLogger('history.log'),
-            EarlyStopping(monitor='val_acc_g_row', patience=self.patience, verbose=1),
-            ModelCheckpoint(self.save_model_path, monitor='val_acc_g_row', mode='max',
+            EarlyStopping(monitor=self.stopping_metric, patience=self.patience, verbose=1),
+            ModelCheckpoint(self.save_model_path, monitor=self.stopping_metric mode='max',
                             save_best_only=True, verbose=1),
         ]
         if not self.no_f1_score and not self.one_hot:
@@ -283,6 +283,12 @@ class HelixerModel(ABC):
                     print('\nUnknown data encoding')
                     exit()
 
+        def set_stopping_metric():
+            if self.one_hot:
+                self.stopping_metric = 'val_acc_g_oh'
+            else:
+                self.stopping_metric = 'val_acc_g_row'
+
         if not self.load_model_path:
             self.h5_train = h5py.File(os.path.join(self.data_dir, 'training_data.h5'), 'r')
             self.h5_val = h5py.File(os.path.join(self.data_dir, 'validation_data.h5'), 'r')
@@ -302,6 +308,7 @@ class HelixerModel(ABC):
             n_intergenic_train_seqs = get_n_intergenic_seqs(self.h5_train)
             n_intergenic_val_seqs = get_n_intergenic_seqs(self.h5_val)
             detect_label_type(self.h5_train)
+            set_stopping_metric()
         else:
             self.h5_test = h5py.File(self.test_data, 'r')
             self.shape_test = self.h5_test['/data/X'].shape
