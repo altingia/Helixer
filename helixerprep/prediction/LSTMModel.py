@@ -3,8 +3,10 @@ import random
 import numpy as np
 
 from keras_layer_normalization import LayerNormalization
-from keras.models import Sequential
-from keras.layers import LSTM, CuDNNLSTM, Dense, Bidirectional, Activation, Reshape, Dropout
+from keras_self_attention import SeqSelfAttention
+from keras.models import Sequential, Model
+from keras.layers import (LSTM, CuDNNLSTM, Dense, Bidirectional, Activation, Reshape, Dropout,
+                          concatenate, Input)
 from HelixerModel import HelixerModel, HelixerSequence
 
 
@@ -70,32 +72,44 @@ class LSTMModel(HelixerModel):
         self.parser.add_argument('-ps', '--pool-size', type=int, default=10)
         self.parser.add_argument('-dr', '--dropout', type=float, default=0.0)
         self.parser.add_argument('-ln', '--layer-normalization', action='store_true')
+        self.parser.add_argument('-at', '--attention', action='store_true')
+
         self.parse_args()
 
     def sequence_cls(self):
         return LSTMSequence
 
     def model(self):
-        model = Sequential()
+        input_ = Input(shape=(None, self.pool_size * 4),
+                       dtype=self.float_precision,
+                       name='input')
 
-        model.add(Bidirectional(
-            CuDNNLSTM(self.units, return_sequences=True, input_shape=(None, self.pool_size * 4)),
-            input_shape=(None, self.pool_size * 4)
-        ))
+        x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(input_)
 
         # potential next layers
         if self.layers > 1:
             for _ in range(self.layers - 1):
-                if self.layer_normalization:
-                    model.add(LayerNormalization())
-                model.add(Dropout(self.dropout))
-                model.add(Bidirectional(CuDNNLSTM(self.units, return_sequences=True)))
+                if self.attention:
+                    attention = SeqSelfAttention(
+                        attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
+                        attention_activation=None,
+                    )(x)
+                    # only apply dropout to the attention (as done in transformers)
+                    attention = Dropout(self.dropout)(attention)
+                    x = concatenate([x, attention])
 
-        model.add(Dropout(self.dropout))
-        model.add(Dense(self.pool_size * 4))
+                # always normalize after attention merge and dropout (also similar to transformers)
+                if self.layer_normalization:
+                    x = LayerNormalization()(x)
+                x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(x)
+
+        # todo add attention here as well
+        x = Dense(self.pool_size * 4)(x)
         if self.pool_size > 1:
-            model.add(Reshape((-1, self.pool_size, 4)))
-        model.add(Activation('softmax'))
+            x = Reshape((-1, self.pool_size, 4))(x)
+        x = Activation('softmax')(x)
+
+        model = Model(inputs=input_, outputs=x)
         return model
 
     def compile_model(self, model):
