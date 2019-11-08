@@ -73,6 +73,7 @@ class LSTMModel(HelixerModel):
         self.parser.add_argument('-dr', '--dropout', type=float, default=0.0)
         self.parser.add_argument('-ln', '--layer-normalization', action='store_true')
         self.parser.add_argument('-att', '--attention', action='store_true')
+        self.parser.add_argument('-attw', '--attention-width', action='store_true')
 
         self.parse_args()
 
