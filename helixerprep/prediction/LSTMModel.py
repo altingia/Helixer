@@ -73,7 +73,7 @@ class LSTMModel(HelixerModel):
         self.parser.add_argument('-dr', '--dropout', type=float, default=0.0)
         self.parser.add_argument('-ln', '--layer-normalization', action='store_true')
         self.parser.add_argument('-att', '--attention', action='store_true')
-        self.parser.add_argument('-attw', '--attention-width', action='store_true')
+        self.parser.add_argument('-attw', '--attention-width', type=int, default=1e9)
 
         self.parse_args()
 
@@ -81,13 +81,14 @@ class LSTMModel(HelixerModel):
         return LSTMSequence
 
     def model(self):
-        def insert_attention(x, apply_dropout=True):
+        def insert_attention(x, width_multiply=1):
             attention = SeqSelfAttention(
                 attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
+                attention_width=self.attention_width * width_multiply,
                 attention_activation=None,
             )(x)
             # if -at, only apply dropout to the attention (as done in transformers)
-            if apply_dropout:
+            if self.dropout > 0.0:
                 attention = Dropout(self.dropout)(attention)
             x = concatenate([x, attention])
             return x
@@ -97,18 +98,14 @@ class LSTMModel(HelixerModel):
                        dtype=self.float_precision,
                        name='input')
 
-        if self.attention:
-            x = insert_attention(input_, apply_dropout=False)  # do not apply dropout on raw input
-        else:
-            x = input_
-        x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(x)
+        x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(input_)
 
         # potential next layers
         if self.layers > 1:
             for _ in range(self.layers - 1):
                 if self.attention:
-                    x = insert_attention(x, apply_dropout=True)
-                else:
+                    x = insert_attention(x)
+                elif self.dropout > 0.0:
                     x = Dropout(self.dropout)(x)
                 # always normalize after attention merge and dropout (also similar to transformers)
                 if self.layer_normalization:
@@ -117,7 +114,7 @@ class LSTMModel(HelixerModel):
 
 
         if self.attention:
-            x = insert_attention(x, apply_dropout=True)  # attention for the fc layer
+            x = insert_attention(x)  # attention for the fc layer
         x = Dense(self.pool_size * 4)(x)
 
         # some reshaping as we predict multiple points at once
