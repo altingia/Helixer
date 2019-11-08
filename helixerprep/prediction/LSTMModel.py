@@ -80,31 +80,46 @@ class LSTMModel(HelixerModel):
         return LSTMSequence
 
     def model(self):
+        def insert_attention(x, apply_dropout=True):
+            attention = SeqSelfAttention(
+                attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
+                attention_activation=None,
+            )(x)
+            # if -at, only apply dropout to the attention (as done in transformers)
+            if apply_dropout:
+                attention = Dropout(self.dropout)(attention)
+            x = concatenate([x, attention])
+            return x
+
+        # network start
         input_ = Input(shape=(None, self.pool_size * 4),
                        dtype=self.float_precision,
                        name='input')
 
-        x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(input_)
+        if self.attention:
+            x = insert_attention(input_, apply_dropout=False)  # do not apply dropout on raw input
+        else:
+            x = input_
+        x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(x)
 
         # potential next layers
         if self.layers > 1:
             for _ in range(self.layers - 1):
                 if self.attention:
-                    attention = SeqSelfAttention(
-                        attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
-                        attention_activation=None,
-                    )(x)
-                    # only apply dropout to the attention (as done in transformers)
-                    attention = Dropout(self.dropout)(attention)
-                    x = concatenate([x, attention])
-
+                    x = insert_attention(x, apply_dropout=True)
+                else:
+                    x = Dropout(self.dropout)(x)
                 # always normalize after attention merge and dropout (also similar to transformers)
                 if self.layer_normalization:
                     x = LayerNormalization()(x)
                 x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(x)
 
-        # todo add attention here as well
+
+        if self.attention:
+            x = insert_attention(x, apply_dropout=True)  # attention for the fc layer
         x = Dense(self.pool_size * 4)(x)
+
+        # some reshaping as we predict multiple points at once
         if self.pool_size > 1:
             x = Reshape((-1, self.pool_size, 4))(x)
         x = Activation('softmax')(x)
