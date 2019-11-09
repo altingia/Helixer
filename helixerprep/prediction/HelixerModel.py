@@ -378,7 +378,7 @@ class HelixerModel(ABC):
                                 epochs=self.epochs,
                                 workers=0,  # run in main thread
                                 # workers=1,
-                                validation_data=self.gen_validation_data(),
+                                # validation_data=self.gen_validation_data(),
                                 callbacks=self.generate_callbacks(),
                                 verbose=True)
 
