@@ -71,6 +71,7 @@ class LSTMModel(HelixerModel):
         self.parser.add_argument('-l', '--layers', type=int, default=1)
         self.parser.add_argument('-ps', '--pool-size', type=int, default=10)
         self.parser.add_argument('-dr', '--dropout', type=float, default=0.0)
+        self.parser.add_argument('-fc', '--fully-connected-size', type=int, default=0)
         self.parser.add_argument('-ln', '--layer-normalization', action='store_true')
         self.parser.add_argument('-att', '--attention', action='store_true')
         self.parser.add_argument('-attw', '--attention-width', type=int, default=1e9)
@@ -81,18 +82,6 @@ class LSTMModel(HelixerModel):
         return LSTMSequence
 
     def model(self):
-        def insert_attention(x, width_multiply=1):
-            attention = SeqSelfAttention(
-                attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
-                attention_width=self.attention_width * width_multiply,
-                attention_activation=None,
-            )(x)
-            # if -at, only apply dropout to the attention (as done in transformers)
-            if self.dropout > 0.0:
-                attention = Dropout(self.dropout)(attention)
-            x = concatenate([x, attention])
-            return x
-
         # network start
         input_ = Input(shape=(None, self.pool_size * 4),
                        dtype=self.float_precision,
@@ -103,18 +92,39 @@ class LSTMModel(HelixerModel):
         # potential next layers
         if self.layers > 1:
             for _ in range(self.layers - 1):
-                if self.attention:
-                    x = insert_attention(x)
-                elif self.dropout > 0.0:
+                # if self.attention:
+                    # x = insert_attention(x)
+                # elif self.dropout > 0.0:
+                    # x = Dropout(self.dropout)(x)
+                if self.dropout > 0.0:
                     x = Dropout(self.dropout)(x)
-                # always normalize after attention merge and dropout (also similar to transformers)
                 if self.layer_normalization:
                     x = LayerNormalization()(x)
                 x = Bidirectional(CuDNNLSTM(self.units, return_sequences=True))(x)
 
 
+        # layers after the lstm stack
         if self.attention:
-            x = insert_attention(x)  # attention for the fc layer
+            attention = SeqSelfAttention(
+                attention_type=SeqSelfAttention.ATTENTION_TYPE_MUL,
+                attention_width=self.attention_width,
+                attention_activation=None,  # should not be needed if we layer normalize later
+            )(x)
+            x = concatenate([x, attention])
+            if self.dropout > 0.0:
+                x = Dropout(self.dropout)(x)
+        else:
+            if self.dropout > 0.0:
+                x = Dropout(self.dropout)(x)
+
+        if self.layer_normalization:
+            x = LayerNormalization()(x)
+
+        # add intermediate fc layer if desired
+        if self.fully_connected_size > 0:
+            x = Dense(self.fully_connected_size)(x)
+
+        # final output
         x = Dense(self.pool_size * 4)(x)
 
         # some reshaping as we predict multiple points at once
