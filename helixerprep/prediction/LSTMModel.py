@@ -17,7 +17,8 @@ class LSTMSequence(HelixerSequence):
 
     def __getitem__(self, idx):
         pool_size = self.model.pool_size
-        usable_idx_slice = self.usable_idx[idx * self.batch_size:(idx + 1) * self.batch_size]
+        n_seqs = self._seqs_per_batch()
+        usable_idx_slice = self.usable_idx[idx * n_seqs:(idx + 1) * n_seqs]
         usable_idx_slice = sorted(list(usable_idx_slice))  # got to always provide a sorted list of idx
         X = np.stack(self.x_dset[usable_idx_slice])
         y = np.stack(self.y_dset[usable_idx_slice])

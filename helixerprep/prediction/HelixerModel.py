@@ -125,9 +125,19 @@ class HelixerSequence(Sequence):
         assert np.all(np.logical_and(self.gc_contents >= 0.0, self.gc_contents <= 1.0))
         assert np.all(np.logical_and(self.coord_lengths >= 0.0, self.coord_lengths <= 1.0))
 
+    def _seqs_per_batch(self):
+        """Calculates how many original sequences are needed to fill a batch. Necessary
+        if --overlap is on"""
+        if self.model.overlap:
+            n_seqs = self.batch_size / (self.core_length / self.overlap_offset)
+            assert n_seqs.is_integer()
+        else:
+            n_seqs = self.batch_size
+        return int(n_seqs)
+
     def __len__(self):
         # return 1
-        return int(np.ceil(len(self.usable_idx) / float(self.batch_size)))
+        return int(np.ceil(len(self.usable_idx) / float(self._seqs_per_batch())))
 
     @abstractmethod
     def __getitem__(self, idx):
@@ -156,7 +166,7 @@ class HelixerModel(ABC):
         self.parser.add_argument('-po', '--prediction-output-path', type=str, default='predictions.h5')
         self.parser.add_argument('-ev', '--eval', action='store_true')
         # overlap options
-        self.parser.add_argument('-overlap', '--overlap-predictions', action='store_true')
+        self.parser.add_argument('-overlap', '--overlap', action='store_true')
         self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=2000)
         self.parser.add_argument('-core-len', '--core-length', type=int, default=10000)
         # resources
