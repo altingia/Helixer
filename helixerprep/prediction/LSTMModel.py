@@ -23,69 +23,84 @@ class LSTMSequence(HelixerSequence):
         n_seqs = self._seqs_per_batch()
         usable_idx_slice = self.usable_idx[idx * n_seqs:(idx + 1) * n_seqs]
         usable_idx_slice = sorted(list(usable_idx_slice))  # got to always provide a sorted list of idx
-        X = np.stack(self.x_dset[usable_idx_slice])
-        y = np.stack(self.y_dset[usable_idx_slice])
-        sw = np.stack(self.sw_dset[usable_idx_slice])
-        if self.transitions is not None:
-            transitions = np.stack(self.transitions_dset[usable_idx_slice])
-
-        if pool_size > 1:
-            if y.shape[1] % pool_size != 0:
-                # clip to maximum size possible with the pooling length
-                overhang = y.shape[1] % pool_size
-                X = X[:, :-overhang]
-                y = y[:, :-overhang]
-                sw = sw[:, :-overhang]
-                transitions = transitions[:, :-overhang]
-
-            X = X.reshape((
-                X.shape[0],
-                X.shape[1] // pool_size,
-                -1
-            ))
-            # make labels 2d so we can use the standard softmax / loss functions
-            y = y.reshape((
-                y.shape[0],
-                y.shape[1] // pool_size,
-                pool_size,
-                y.shape[-1],
-            ))
-
+        if self.overlap:
+            # only care about X, which has to be handled in a very special way
+            # first apply sliding window of X.shape[1]
+            X = self.x_dset[usable_idx_slice]
+            chunk_size = X.shape[1]
+            X = np.concatenate(X, axis=0)
+            # apply sliding window
+            X = [X[i:i+chunk_size] for i in range(0, len(X) - chunk_size + 1, self.overlap_offset)]
+            # save first and last sequence for special handling later
+            first, last = X[0], X[-1]
+            # cut to the core
+            seq_overhang = int((chunk_size - self.core_length) / 2)
+            X = [s[seq_overhang:-seq_overhang] for s in X]
+            # generate sequences at the start and end
+            start_seqs = [first[i:i+self.overlap_offset]
+                          for i in range(0, seq_overhang, self.overlap_offset)]
+            end_seqs = [last[i:i+self.overlap_offset]
+                          for i in range(chunk_size - seq_overhang, chunk_size, self.overlap_offset)]
+            X = start_seqs + X + end_seqs
+            return (X,)
+        else:
+            X = self.x_dset[usable_idx_slice]
+            y = self.y_dset[usable_idx_slice]
+            sw = self.sw_dset[usable_idx_slice]
             if self.transitions is not None:
-                transitions = transitions.reshape((
-                    transitions.shape[0],
-                    transitions.shape[1] // pool_size,
+                transitions = self.transitions_dset[usable_idx_slice]
+
+            if pool_size > 1:
+                assert y.shape[1] % pool_size == 0, 'pooling size has to evenly divide seq len'
+
+                X = X.reshape((
+                    X.shape[0],
+                    X.shape[1] // pool_size,
+                    -1
+                ))
+                # make labels 2d so we can use the standard softmax / loss functions
+                y = y.reshape((
+                    y.shape[0],
+                    y.shape[1] // pool_size,
                     pool_size,
-                    transitions.shape[-1],
+                    y.shape[-1],
                 ))
 
-            # mark any multi-base timestep as error if any base has an error
-            sw = sw.reshape((sw.shape[0], -1, pool_size))
-            sw = np.logical_not(np.any(sw == 0, axis=2)).astype(np.int8)
+                if self.transitions is not None:
+                    transitions = transitions.reshape((
+                        transitions.shape[0],
+                        transitions.shape[1] // pool_size,
+                        pool_size,
+                        transitions.shape[-1],
+                    ))
 
-            if self.class_weights is not None:
-                # class weights are only used during training and validation to keep the loss
-                # comparable and are additive for the individual timestep predictions
-                # giving even more weight to transition points
-                # class weights without pooling not supported yet
-                # cw = np.array([0.8, 1.4, 1.2, 1.2], dtype=np.float32)
-                cls_arrays = [np.any((y[:, :, :, col] == 1), axis=2) for col in range(4)]
-                cls_arrays = np.stack(cls_arrays, axis=2).astype(np.int8)
-                # add class weights to applicable timesteps
-                cw_arrays = np.multiply(cls_arrays, np.tile(self.class_weights, y.shape[:2] + (1,)))
-                cw = np.sum(cw_arrays, axis=2)
-                # multiply with previous sample weights
-                sw = np.multiply(sw, cw)
-            if self.transitions is not None:
-                sw_t = [np.any((transitions[:, :, :, col] == 1),axis=2) for col in range(6)]
-                sw_t = np.stack(sw_t, axis=2).astype(np.int8)
-                sw_t = np.multiply(sw_t, self.transitions)
+                # mark any multi-base timestep as error if any base has an error
+                sw = sw.reshape((sw.shape[0], -1, pool_size))
+                sw = np.logical_not(np.any(sw == 0, axis=2)).astype(np.int8)
 
-                sw_t = np.sum(sw_t, axis=2)
-                where_are_ones = np.where(sw_t == 0)
-                sw_t[where_are_ones[0], where_are_ones[1]] = 1
-                sw = np.multiply(sw_t, sw)
-        return X, y, sw
+                if self.class_weights is not None:
+                    # class weights are only used during training and validation to keep the loss
+                    # comparable and are additive for the individual timestep predictions
+                    # giving even more weight to transition points
+                    # class weights without pooling not supported yet
+                    # cw = np.array([0.8, 1.4, 1.2, 1.2], dtype=np.float32)
+                    cls_arrays = [np.any((y[:, :, :, col] == 1), axis=2) for col in range(4)]
+                    cls_arrays = np.stack(cls_arrays, axis=2).astype(np.int8)
+                    # add class weights to applicable timesteps
+                    cw_arrays = np.multiply(cls_arrays, np.tile(self.class_weights, y.shape[:2] + (1,)))
+                    cw = np.sum(cw_arrays, axis=2)
+                    # multiply with previous sample weights
+                    sw = np.multiply(sw, cw)
+                if self.transitions is not None:
+                    sw_t = [np.any((transitions[:, :, :, col] == 1),axis=2) for col in range(6)]
+                    sw_t = np.stack(sw_t, axis=2).astype(np.int8)
+                    sw_t = np.multiply(sw_t, self.transitions)
+
+                    sw_t = np.sum(sw_t, axis=2)
+                    where_are_ones = np.where(sw_t == 0)
+                    sw_t[where_are_ones[0], where_are_ones[1]] = 1
+                    sw = np.multiply(sw_t, sw)
+            return X, y, sw
 
 
 class LSTMModel(HelixerModel):

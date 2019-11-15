@@ -109,8 +109,8 @@ class HelixerSequence(Sequence):
     def _seqs_per_batch(self):
         """Calculates how many original sequences are needed to fill a batch. Necessary
         if --overlap is on"""
-        if self.model.overlap:
-            n_seqs = self.batch_size / (self.model.core_length / self.model.overlap_offset)
+        if self.overlap:
+            n_seqs = self.batch_size / (self.core_length / self.overlap_offset)
         else:
             n_seqs = self.batch_size
         return int(n_seqs)
@@ -177,7 +177,9 @@ class HelixerModel(ABC):
             self.transitions = np.array(self.transitions, dtype = np.float32)
 
         if self.overlap:
-            # check if everything divides evenly
+            assert self.load_model_path  # only use overlapping during test time
+            assert self.overlap_offset < self.core_length
+            # check if everything divides evenly to avoid further head aches
             assert (20000 / self.core_length).is_integer()  # assume 20000 chunk size
             assert (self.batch_size / (self.core_length / self.overlap_offset)).is_integer()
             assert ((20000 - self.core_length) / 2 / self.overlap_offset).is_integer()
