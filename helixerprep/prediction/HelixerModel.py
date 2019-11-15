@@ -68,11 +68,8 @@ class HelixerSequence(Sequence):
         self.model = model
         self.h5_file = h5_file
         self.mode = mode
-        self.batch_size = self.model.batch_size
-        self.float_precision = self.model.float_precision
-        self.class_weights = self.model.class_weights
-        self.meta_losses = self.model.meta_losses
-        self.transitions = self.model.transitions
+        self._cp_into_namespace(['batch_size', 'float_precision', 'class_weights', 'meta_losses',
+                                 'transitions', 'overlap', 'overlap_offset', 'core_length'])
         self.x_dset = h5_file['/data/X']
         self.y_dset = h5_file['/data/y']
         self.sw_dset = h5_file['/data/sample_weights']
@@ -88,6 +85,11 @@ class HelixerSequence(Sequence):
             self.usable_idx = list(range(self.x_dset.shape[0]))
         if shuffle:
             random.shuffle(self.usable_idx)
+
+    def _cp_into_namespace(self, names):
+        """Moves class properties from self.model into this class for brevity"""
+        for name in names:
+            self.__dict__[name] = self.model.__dict__[name]
 
     def _load_and_scale_meta_info(self):
         self.gc_contents = np.array(self.h5_file['/data/gc_contents'], dtype=self.float_precision)
@@ -108,8 +110,7 @@ class HelixerSequence(Sequence):
         """Calculates how many original sequences are needed to fill a batch. Necessary
         if --overlap is on"""
         if self.model.overlap:
-            n_seqs = self.batch_size / (self.core_length / self.overlap_offset)
-            assert n_seqs.is_integer()
+            n_seqs = self.batch_size / (self.model.core_length / self.model.overlap_offset)
         else:
             n_seqs = self.batch_size
         return int(n_seqs)
@@ -149,7 +150,7 @@ class HelixerModel(ABC):
         self.parser.add_argument('-ev', '--eval', action='store_true')
         # overlap options
         self.parser.add_argument('-overlap', '--overlap', action='store_true')
-        self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=2000)
+        self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=1000) # 2500
         self.parser.add_argument('-core-len', '--core-length', type=int, default=10000)
         # resources
         self.parser.add_argument('-fp', '--float-precision', type=str, default='float32')
@@ -174,6 +175,12 @@ class HelixerModel(ABC):
         self.transitions = eval(self.transitions)
         if type(self.transitions) is list:
             self.transitions = np.array(self.transitions, dtype = np.float32)
+
+        if self.overlap:
+            # check if everything divides evenly
+            assert (20000 / self.core_length).is_integer()  # assume 20000 chunk size
+            assert (self.batch_size / (self.core_length / self.overlap_offset)).is_integer()
+            assert ((20000 - self.core_length) / 2 / self.overlap_offset).is_integer()
 
         if self.nni:
             hyperopt_args = nni.get_next_parameter()
