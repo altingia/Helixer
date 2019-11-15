@@ -172,6 +172,10 @@ class HelixerModel(ABC):
         self.parser.add_argument('-td', '--test-data', type=str, default='')
         self.parser.add_argument('-po', '--prediction-output-path', type=str, default='predictions.h5')
         self.parser.add_argument('-ev', '--eval', action='store_true')
+        # overlap options
+        self.parser.add_argument('-overlap', '--overlap', action='store_true')
+        self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=2000)
+        self.parser.add_argument('-core-len', '--core-length', type=int, default=10000)
         # resources
         self.parser.add_argument('-fp', '--float-precision', type=str, default='float32')
         self.parser.add_argument('-gpus', '--gpus', type=int, default=1)
