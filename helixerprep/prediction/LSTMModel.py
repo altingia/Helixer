@@ -23,7 +23,7 @@ class LSTMSequence(HelixerSequence):
         X = np.stack(self.x_dset[usable_idx_slice])
         y = np.stack(self.y_dset[usable_idx_slice])
         sw = np.stack(self.sw_dset[usable_idx_slice])
-
+        transitions = np.stack(self.transitions_dset[usable_idx_slice])
         if pool_size > 1:
             if y.shape[1] % pool_size != 0:
                 # clip to maximum size possible with the pooling length
@@ -31,6 +31,7 @@ class LSTMSequence(HelixerSequence):
                 X = X[:, :-overhang]
                 y = y[:, :-overhang]
                 sw = sw[:, :-overhang]
+                transitions = transitions[:, :-overhang]
 
             X = X.reshape((
                 X.shape[0],
@@ -45,6 +46,12 @@ class LSTMSequence(HelixerSequence):
                 y.shape[-1],
             ))
 
+            transitions = transitions.reshape((
+                transitions.shape[0],
+                transitions.shape[1] // pool_size,
+                pool_size,
+                transitions.shape[-1],
+            ))
             # mark any multi-base timestep as error if any base has an error
             sw = sw.reshape((sw.shape[0], -1, pool_size))
             sw = np.logical_not(np.any(sw == 0, axis=2)).astype(np.int8)
@@ -54,6 +61,7 @@ class LSTMSequence(HelixerSequence):
                 # comparable and are additive for the individual timestep predictions
                 # giving even more weight to transition points
                 # class weights without pooling not supported yet
+                # cw = np.array([0.8, 1.4, 1.2, 1.2], dtype=np.float32)
                 cls_arrays = [np.any((y[:, :, :, col] == 1), axis=2) for col in range(4)]
                 cls_arrays = np.stack(cls_arrays, axis=2).astype(np.int8)
                 # add class weights to applicable timesteps
@@ -61,10 +69,20 @@ class LSTMSequence(HelixerSequence):
                 cw = np.sum(cw_arrays, axis=2)
                 # multiply with previous sample weights
                 sw = np.multiply(sw, cw)
+            if self.transitions is not None:
+                sw_t = [np.any((transitions[:, :, :, col] == 1),axis=2) for col in range(6)]
+                sw_t = np.stack(sw_t, axis=2).astype(np.int8)
+                sw_t = np.multiply(sw_t, self.transitions)
+
+                sw_t = np.sum(sw_t, axis=2)
+                where_are_ones = np.where(sw_t == 0)
+                sw_t[where_are_ones[0], where_are_ones[1]] = 1
+                sw = np.multiply(sw_t, sw)
         return X, y, sw
 
 
 class LSTMModel(HelixerModel):
+
     def __init__(self):
         super().__init__()
         self.parser.add_argument('-u', '--units', type=int, default=4)
@@ -90,7 +108,6 @@ class LSTMModel(HelixerModel):
             for _ in range(self.layers - 1):
                 if self.layer_normalization:
                     model.add(LayerNormalization())
-                model.add(Dropout(self.dropout))
                 model.add(Bidirectional(CuDNNLSTM(self.units, return_sequences=True)))
 
         model.add(Dropout(self.dropout))
