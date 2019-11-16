@@ -350,7 +350,6 @@ class HelixerModel(ABC):
                     predictions = np.concatenate((predictions, zero_padding), axis=1)
 
             if self.overlap:
-                import pudb; pudb.set_trace()
                 chunk_size = predictions.shape[1]
                 # save first and last sequence for special handling later
                 first, last = predictions[0], predictions[-1]
@@ -358,27 +357,33 @@ class HelixerModel(ABC):
                 seq_overhang = int((chunk_size - self.core_length) / 2)
                 predictions = [s[seq_overhang:-seq_overhang] for s in predictions]
                 # generate sequences at the start and end
-                start_seqs = [first[i:i+self.overlap_offset]
+                start_seqs = [first[i:i+self.core_length]
                               for i in range(0, seq_overhang, self.overlap_offset)]
-                end_seqs = [last[i:i+self.overlap_offset]
-                              for i in range(chunk_size - seq_overhang, chunk_size, self.overlap_offset)]
+                end_seqs = [last[i-self.core_length:i]
+                              for i in range(chunk_size - seq_overhang + self.overlap_offset,
+                                             chunk_size + 1,
+                                             self.overlap_offset)]
                 predictions = start_seqs + predictions + end_seqs
+                predictions = np.stack(predictions)
 
                 # merge and stack efficiently so everything can be averaged
-                n_overlapping_seqs = self.core_length / self.overlap_offset
-                n_predicted_bases = self._seqs_per_batch() * chunk_size
+                n_overlapping_seqs = self.core_length // self.overlap_offset
+                n_predicted_bases = test_sequence._seqs_per_batch() * chunk_size
                 stacked = np.zeros((n_overlapping_seqs, n_predicted_bases, 4), dtype=np.float32)
-                for i in n_overlapping_seqs:
-                    idx = range(i, predictions.shape[0], n_overlapping_seqs)
+                for j in range(n_overlapping_seqs):
+                    # get idx of every n_overlapping_seqs'th seq starting at j
+                    idx = list(range(j, predictions.shape[0], n_overlapping_seqs))
                     seq = np.concatenate(predictions[idx], axis=0)
-                    stacked[i, i*self.overlap_offset:] = seq
+                    start_base = j*self.overlap_offset
+                    stacked[j, start_base:start_base+seq.shape[0]] = seq
 
                 # average individual softmax values
                 # does change pseudo-probability dist at the edge but not the argmax afterwards
                 # (causes values to be lower there)
                 averages = np.mean(stacked, axis=0)
-                predictions = np.split(averages, self._seqs_per_batch())
+                predictions = np.stack(np.split(averages, test_sequence._seqs_per_batch()))
 
+            # prepare h5 dataset and save the predictions to disk
             if i == 0:
                 old_len = 0
                 pred_out.create_dataset('/predictions',
@@ -391,7 +396,6 @@ class HelixerModel(ABC):
             else:
                 old_len = pred_out['/predictions'].shape[0]
                 pred_out['/predictions'].resize(old_len + predictions.shape[0], axis=0)
-            # save predictions
             pred_out['/predictions'][old_len:] = predictions
 
         # add model config and other attributes to predictions
