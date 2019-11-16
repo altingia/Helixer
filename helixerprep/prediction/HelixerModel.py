@@ -106,20 +106,22 @@ class HelixerSequence(Sequence):
         assert np.all(np.logical_and(self.gc_contents >= 0.0, self.gc_contents <= 1.0))
         assert np.all(np.logical_and(self.coord_lengths >= 0.0, self.coord_lengths <= 1.0))
 
-    def _seqs_per_batch(self):
+    def _seqs_per_batch(self, batch_idx=None):
         """Calculates how many original sequences are needed to fill a batch. Necessary
         if --overlap is on"""
         if self.overlap:
             n_seqs = self.batch_size / (self.core_length / self.overlap_offset)
         else:
             n_seqs = self.batch_size
+        if batch_idx and batch_idx == len(self) - 1:
+            n_seqs = len(self.usable_idx) % n_seqs  # calculate overhang when at the end
         return int(n_seqs)
 
     def __len__(self):
         if self.debug:
             return 1
         else:
-            return int(np.ceil(len(self.usable_idx) / float(self.batch_size)))
+            return int(np.ceil(len(self.usable_idx) / self._seqs_per_batch()))
 
     @abstractmethod
     def __getitem__(self, idx):
@@ -349,7 +351,7 @@ class HelixerModel(ABC):
                                             dtype=np.float16)
                     predictions = np.concatenate((predictions, zero_padding), axis=1)
 
-            if self.overlap:
+            if self.overlap and predictions.shape[0] > 1:
                 chunk_size = predictions.shape[1]
                 # save first and last sequence for special handling later
                 first, last = predictions[0], predictions[-1]
@@ -357,10 +359,10 @@ class HelixerModel(ABC):
                 seq_overhang = int((chunk_size - self.core_length) / 2)
                 predictions = [s[seq_overhang:-seq_overhang] for s in predictions]
                 # generate sequences at the start and end
-                start_seqs = [first[i:i+self.core_length]
-                              for i in range(0, seq_overhang, self.overlap_offset)]
-                end_seqs = [last[i-self.core_length:i]
-                              for i in range(chunk_size - seq_overhang + self.overlap_offset,
+                start_seqs = [first[j:j+self.core_length]
+                              for j in range(0, seq_overhang, self.overlap_offset)]
+                end_seqs = [last[j-self.core_length:j]
+                              for j in range(chunk_size - seq_overhang + self.overlap_offset,
                                              chunk_size + 1,
                                              self.overlap_offset)]
                 predictions = start_seqs + predictions + end_seqs
@@ -368,7 +370,9 @@ class HelixerModel(ABC):
 
                 # merge and stack efficiently so everything can be averaged
                 n_overlapping_seqs = self.core_length // self.overlap_offset
-                n_predicted_bases = test_sequence._seqs_per_batch() * chunk_size
+                n_predicted_original_seqs = test_sequence._seqs_per_batch(batch_idx=i)
+                n_predicted_bases = n_predicted_original_seqs * chunk_size
+
                 stacked = np.zeros((n_overlapping_seqs, n_predicted_bases, 4), dtype=np.float32)
                 for j in range(n_overlapping_seqs):
                     # get idx of every n_overlapping_seqs'th seq starting at j
@@ -381,7 +385,7 @@ class HelixerModel(ABC):
                 # does change pseudo-probability dist at the edge but not the argmax afterwards
                 # (causes values to be lower there)
                 averages = np.mean(stacked, axis=0)
-                predictions = np.stack(np.split(averages, test_sequence._seqs_per_batch()))
+                predictions = np.stack(np.split(averages, n_predicted_original_seqs))
 
             # prepare h5 dataset and save the predictions to disk
             if i == 0:
