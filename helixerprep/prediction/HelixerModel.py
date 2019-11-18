@@ -76,6 +76,7 @@ class HelixerSequence(Sequence):
         self.seqids_dset = h5_file['/data/seqids']
         if self.transitions is not None:
             self.transitions_dset = h5_file['data/transitions']
+        self.chunk_size = self.y_dset.shape[1]
         self._load_and_scale_meta_info()
         self.debug = self.model.debug
 
@@ -118,10 +119,11 @@ class HelixerSequence(Sequence):
 
         if self.overlap:
             X = self.x_dset[usable_idx_batch]
-            chunk_size = X.shape[1]
+            self.chunk_size = X.shape[1]
             X = np.concatenate(X, axis=0)
             # apply sliding window
-            X = [X[i:i+chunk_size] for i in range(0, len(X) - chunk_size + 1, self.overlap_offset)]
+            X = [X[i:i+self.chunk_size]
+                 for i in range(0, len(X) - self.chunk_size + 1, self.overlap_offset)]
             X = np.stack(X)
         else:
             X = self.x_dset[usable_idx_batch]
@@ -137,12 +139,13 @@ class HelixerSequence(Sequence):
     def _get_seqids_for_batch(self, idx):
         usable_idx_batch = self._usable_idx_batch(idx)
         seqids = self.seqids_dset[usable_idx_batch]
+        return seqids
 
     def _seqs_per_batch(self, batch_idx=None):
         """Calculates how many original sequences are needed to fill a batch. Necessary
         if --overlap is on"""
         if self.overlap:
-            n_seqs = self.batch_size / (self.core_length / self.overlap_offset)
+            n_seqs = self.batch_size / (self.chunk_size / self.overlap_offset)
         else:
             n_seqs = self.batch_size
         if batch_idx and batch_idx == len(self) - 1:
@@ -184,7 +187,7 @@ class HelixerModel(ABC):
         self.parser.add_argument('-ev', '--eval', action='store_true')
         # overlap options
         self.parser.add_argument('-overlap', '--overlap', action='store_true')
-        self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=1000) # 2500
+        self.parser.add_argument('-overlap-offset', '--overlap-offset', type=int, default=2500) # 2500
         self.parser.add_argument('-core-len', '--core-length', type=int, default=10000)
         # resources
         self.parser.add_argument('-fp', '--float-precision', type=str, default='float32')
@@ -215,7 +218,7 @@ class HelixerModel(ABC):
             assert self.overlap_offset < self.core_length
             # check if everything divides evenly to avoid further head aches
             assert (20000 / self.core_length).is_integer()  # assume 20000 chunk size
-            assert (self.batch_size / (self.core_length / self.overlap_offset)).is_integer()
+            assert (self.batch_size / (20000 / self.overlap_offset)).is_integer()
             assert ((20000 - self.core_length) / 2 / self.overlap_offset).is_integer()
 
         if self.nni:
@@ -354,9 +357,19 @@ class HelixerModel(ABC):
                 print('Fully correct test seqs: {:.2f}%\n'.format(
                     n_test_correct_seqs / self.shape_test[0] * 100))
 
-    def _overlap_predictions(self, i, test_sequence, predictions):
+    def _overlap_predictions(self, batch_idx, test_sequence, predictions):
+        # first zero out any predictions that were made across seqid borders
         chunk_size = predictions.shape[1]
-        # save first and last sequence for special handling later
+        seqids = test_sequence._get_seqids_for_batch(batch_idx)
+        n_cross_seq_preds = chunk_size // self.overlap_offset - 1
+        for i in range(len(seqids) - 1):
+            if seqids[i] != seqids[i + 1]:
+                import pudb; pudb.set_trace()
+                start_idx = i * (n_cross_seq_preds + 1) + 1
+                zeros = np.zeros((n_cross_seq_preds,) + predictions.shape[1:], dtype=predictions.dtype)
+                predictions[start_idx:start_idx + n_cross_seq_preds] = zeros
+
+        # actual overlapping; save first and last sequence for special handling later
         first, last = predictions[0], predictions[-1]
         # cut to the core
         seq_overhang = int((chunk_size - self.core_length) / 2)
@@ -373,7 +386,7 @@ class HelixerModel(ABC):
 
         # merge and stack efficiently so everything can be averaged
         n_overlapping_seqs = self.core_length // self.overlap_offset
-        n_predicted_original_seqs = test_sequence._seqs_per_batch(batch_idx=i)
+        n_predicted_original_seqs = test_sequence._seqs_per_batch(batch_idx=batch_idx)
         n_predicted_bases = n_predicted_original_seqs * chunk_size
 
         stacked = np.zeros((n_overlapping_seqs, n_predicted_bases, 4), dtype=np.float32)
