@@ -106,6 +106,29 @@ class HelixerSequence(Sequence):
         assert np.all(np.logical_and(self.gc_contents >= 0.0, self.gc_contents <= 1.0))
         assert np.all(np.logical_and(self.coord_lengths >= 0.0, self.coord_lengths <= 1.0))
 
+    def _get_batch_data(self, idx):
+        n_seqs = self._seqs_per_batch()
+        usable_idx_slice = self.usable_idx[idx * n_seqs:(idx + 1) * n_seqs]
+        usable_idx_slice = sorted(list(usable_idx_slice))  # got to always provide a sorted list of idx
+
+        if self.overlap:
+            X = self.x_dset[usable_idx_slice]
+            chunk_size = X.shape[1]
+            X = np.concatenate(X, axis=0)
+            # apply sliding window
+            X = [X[i:i+chunk_size] for i in range(0, len(X) - chunk_size + 1, self.overlap_offset)]
+            X = np.stack(X)
+        else:
+            X = self.x_dset[usable_idx_slice]
+
+        y = self.y_dset[usable_idx_slice]
+        sw = self.sw_dset[usable_idx_slice]
+        if self.transitions is not None:
+            transitions = self.transitions_dset[usable_idx_slice]
+        else:
+            transitions = None
+        return X, y, sw, transitions
+
     def _seqs_per_batch(self, batch_idx=None):
         """Calculates how many original sequences are needed to fill a batch. Necessary
         if --overlap is on"""
