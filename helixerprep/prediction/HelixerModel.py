@@ -428,7 +428,7 @@ class HelixerModel(ABC):
                 n_removed = self.shape_test[1] - predictions.shape[1]
                 if n_removed > 0:
                     zero_padding = np.zeros((predictions.shape[0], n_removed, predictions.shape[2]),
-                                            dtype=np.float16)
+                                            dtype=predictions.dtype)
                     predictions = np.concatenate((predictions, zero_padding), axis=1)
 
             if self.overlap and predictions.shape[0] > 1:
@@ -438,10 +438,10 @@ class HelixerModel(ABC):
             if i == 0:
                 old_len = 0
                 pred_out.create_dataset('/predictions',
-                                        data=predictions.astype(np.float16),
+                                        data=predictions,
                                         maxshape=(None,) + predictions.shape[1:],
                                         chunks=(1,) + predictions.shape[1:],
-                                        dtype='float16',
+                                        dtype='float32',
                                         compression='lzf',
                                         shuffle=True)
             else:
