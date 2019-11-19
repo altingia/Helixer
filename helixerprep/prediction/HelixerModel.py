@@ -119,7 +119,6 @@ class HelixerSequence(Sequence):
 
         if self.overlap:
             X = self.x_dset[usable_idx_batch]
-            self.chunk_size = X.shape[1]
             X = np.concatenate(X, axis=0)
             # apply sliding window
             X = [X[i:i+self.chunk_size]
@@ -364,7 +363,6 @@ class HelixerModel(ABC):
         n_cross_seq_preds = chunk_size // self.overlap_offset - 1
         for i in range(len(seqids) - 1):
             if seqids[i] != seqids[i + 1]:
-                import pudb; pudb.set_trace()
                 start_idx = i * (n_cross_seq_preds + 1) + 1
                 zeros = np.zeros((n_cross_seq_preds,) + predictions.shape[1:], dtype=predictions.dtype)
                 predictions[start_idx:start_idx + n_cross_seq_preds] = zeros
@@ -378,9 +376,9 @@ class HelixerModel(ABC):
         start_seqs = [first[j:j+self.core_length]
                       for j in range(0, seq_overhang, self.overlap_offset)]
         end_seqs = [last[j-self.core_length:j]
-                      for j in range(chunk_size - seq_overhang + self.overlap_offset,
-                                     chunk_size + 1,
-                                     self.overlap_offset)]
+                    for j in range(chunk_size - seq_overhang + self.overlap_offset,
+                                   chunk_size + 1,
+                                   self.overlap_offset)]
         predictions = start_seqs + predictions + end_seqs
         predictions = np.stack(predictions)
 
@@ -389,12 +387,12 @@ class HelixerModel(ABC):
         n_predicted_original_seqs = test_sequence._seqs_per_batch(batch_idx=batch_idx)
         n_predicted_bases = n_predicted_original_seqs * chunk_size
 
-        stacked = np.zeros((n_overlapping_seqs, n_predicted_bases, 4), dtype=np.float32)
+        stacked = np.zeros((n_overlapping_seqs, n_predicted_bases, 4), dtype=predictions.dtype)
         for j in range(n_overlapping_seqs):
             # get idx of every n_overlapping_seqs'th seq starting at j
             idx = list(range(j, predictions.shape[0], n_overlapping_seqs))
             seq = np.concatenate(predictions[idx], axis=0)
-            start_base = j*self.overlap_offset
+            start_base = j * self.overlap_offset
             stacked[j, start_base:start_base+seq.shape[0]] = seq
 
         # average individual softmax values
