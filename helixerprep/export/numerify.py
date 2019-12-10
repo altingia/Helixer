@@ -69,21 +69,20 @@ class Numerifier(ABC):
         """Method to be called from outside. Numerifies both strands."""
         pass
 
-    def _slice_matrix(self, matrix, error_mask, is_plus_strand):
-        data = []
-        error_masks = []
+    def _slice_matrices(self, is_plus_strand, *argv):
+        """Slices (potentially) multiple matrices in the same way according to self.paired_steps"""
+        assert len(argv) > 0, 'Need a matrix to slice'
+        all_slices = ([]) * len(argv)
         # reverse steps on minus strand
         steps = self.paired_steps if is_plus_strand else self.paired_steps[::-1]
         for prev, current in steps:
-            data_slice = matrix[prev:current]
-            error_mask_slice = error_mask[prev:current]
-            if not is_plus_strand:
-                # invert directions
-                data_slice = np.flip(data_slice, axis=0)
-                error_mask_slice = np.flip(error_mask_slice, axis=0)
-            data.append(data_slice)
-            error_masks.append(error_mask_slice)
-        return data, error_masks
+            for matrix, slices in zip(argv, all_slices):
+                data_slice = matrix[prev:current]
+                if not is_plus_strand:
+                    # invert directions
+                    data_slice = np.flip(data_slice, axis=0)
+                slices.append(data_slice)
+        return all_slices
 
     def _zero_matrix(self):
         length = len(self.coord.sequence)
@@ -137,10 +136,8 @@ class AnnotationNumerifier(Numerifier):
         minus_strand = self._encode_strand(False)
 
         # put everything together
-        labels = plus_strand[0] + minus_strand[0]
-        error_masks = plus_strand[1] + minus_strand[1]
-        transitions = plus_strand[2] + minus_strand[2]
-        return labels, error_masks, transitions
+        combined_data = (plus_strand[i] + minus_strand[i] for i in range(len(plus_strand)))
+        return combined_data
 
     def _encode_strand(self, bool_):
         self._zero_matrix()
@@ -155,8 +152,8 @@ class AnnotationNumerifier(Numerifier):
             labels, error_masks = self._slice_matrix(self.matrix,
                                                      self.error_mask,
                                                      is_plus_strand=bool_)
-        self.binary_transition_matrix = self._encode_transitions()
-        transitions, _ = self._slice_matrix(self.binary_transition_matrix,
+        binary_transition_matrix = self._encode_transitions()
+        transitions, _ = self._slice_matrix(binary_transition_matrix,
                                             self.error_mask,
                                             is_plus_strand=bool_)
         return labels, error_masks, transitions
