@@ -141,7 +141,6 @@ class AnnotationNumerifier(Numerifier):
         minus_strand = self._encode_strand(False)
 
         # put everything together
-        import pudb; pudb.set_trace()
         combined_data = tuple(plus_strand[i] + minus_strand[i] for i in range(len(plus_strand)))
         return combined_data
 
@@ -241,7 +240,6 @@ class CoordNumerifier(object):
         inputs, input_masks = seq_numerifier.coord_to_matrices()
         labels, label_masks, gene_lengths, transitions = anno_numerifier.coord_to_matrices()
 
-        import pudb; pudb.set_trace()
         start_ends = anno_numerifier.paired_steps
         # flip the start ends back for - strand and append
         start_ends += [(x[1], x[0]) for x in anno_numerifier.paired_steps[::-1]]
