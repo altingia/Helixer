@@ -72,7 +72,7 @@ class Numerifier(ABC):
     def _slice_matrices(self, is_plus_strand, *argv):
         """Slices (potentially) multiple matrices in the same way according to self.paired_steps"""
         assert len(argv) > 0, 'Need a matrix to slice'
-        all_slices = ([]) * len(argv)
+        all_slices = [[] for _ in range(len(argv))]
         # reverse steps on minus strand
         steps = self.paired_steps if is_plus_strand else self.paired_steps[::-1]
         for prev, current in steps:
@@ -133,7 +133,7 @@ class AnnotationNumerifier(Numerifier):
         self.features = features
         self.one_hot = one_hot
         # encodes the length of current transcript at that base
-        self.gene_lengths = np.zeros(self.error_mask.shape, dtype=np.uint32)
+        self.gene_lengths = np.zeros((len(coord.sequence),), dtype=np.uint32)
 
     def coord_to_matrices(self):
         """Always numerifies both strands one after the other."""
@@ -141,32 +141,29 @@ class AnnotationNumerifier(Numerifier):
         minus_strand = self._encode_strand(False)
 
         # put everything together
-        combined_data = (plus_strand[i] + minus_strand[i] for i in range(len(plus_strand)))
+        import pudb; pudb.set_trace()
+        combined_data = tuple(plus_strand[i] + minus_strand[i] for i in range(len(plus_strand)))
         return combined_data
 
     def _encode_strand(self, is_plus_strand):
         self._zero_matrix()
         self._update_matrix_and_error_mask(is_plus_strand=is_plus_strand)
 
-        #  encoding of the actual labels and slicing; generation of error mask and gene length array
-        if self.one_hot:
-            onehot4_matrix = self._encode_onehot4()
-            labels, error_masks, gene_lengths = self._slice_matrices(is_plus_strand,
-                                                                     onehot4_matrix,
-                                                                     self.error_mask,
-                                                                     self.gene_lengths)
-
-        else:
-            labels, error_masks, gene_lengths = self._slice_matrices(is_plus_strand,
-                                                                     self.matrix,
-                                                                     self.error_mask,
-                                                                     self.gene_lengths)
-
         # encoding of transitions
         binary_transition_matrix = self._encode_transitions()
-        transitions = self._slice_matrices(is_plus_strand, binary_transition_matrix)
 
-        return labels, error_masks, gene_lengths, transitions
+        # encoding of the actual labels and slicing; generation of error mask and gene length array
+        if self.one_hot:
+            label_matrix = self._encode_onehot4()
+
+        else:
+            label_matrix = self.matrix
+        matrices = self._slice_matrices(is_plus_strand,
+                                        label_matrix,
+                                        self.error_mask,
+                                        self.gene_lengths,
+                                        binary_transition_matrix)
+        return matrices
 
     def _update_matrix_and_error_mask(self, is_plus_strand):
         for feature in self.features:
@@ -236,7 +233,6 @@ class CoordNumerifier(object):
         if not coord_features:
             logging.warning('Sequence {} has no annoations'.format(coord.seqid))
 
-        import pudb; pudb.set_trace()
         anno_numerifier = AnnotationNumerifier(coord=coord, features=coord_features, max_len=max_len,
                                                one_hot=one_hot)
         seq_numerifier = SequenceNumerifier(coord=coord, max_len=max_len)
@@ -245,6 +241,7 @@ class CoordNumerifier(object):
         inputs, input_masks = seq_numerifier.coord_to_matrices()
         labels, label_masks, gene_lengths, transitions = anno_numerifier.coord_to_matrices()
 
+        import pudb; pudb.set_trace()
         start_ends = anno_numerifier.paired_steps
         # flip the start ends back for - strand and append
         start_ends += [(x[1], x[0]) for x in anno_numerifier.paired_steps[::-1]]
@@ -254,7 +251,7 @@ class CoordNumerifier(object):
             'inputs': inputs,
             'labels': labels,
             'label_masks': label_masks,
-            'gene_lenghts': gene_lenghts,
+            'gene_lengths': gene_lengths,
             'transitions': transitions,
             'species': [coord.genome.species.encode('ASCII')] * len(inputs),
             'seqids': [coord.seqid.encode('ASCII')] * len(inputs),

@@ -59,24 +59,25 @@ class HelixerExportController(object):
         inputs = flat_data['inputs']
         labels = flat_data['labels']
         label_masks = flat_data['label_masks']
+        gene_lengths = flat_data['gene_lengths']
         transitions = flat_data['transitions']
-        # convert to numpy arrays
-
-        # zero-pad each sequence to chunk_size
+        # convert to numpy arrays; zero-pad each sequence to chunk_size
         # this is inefficient if there could be a batch with only sequences smaller than
         # chunk_size, but taking care of that introduces a lot of extra complexity
         n_seq = len(inputs)
         X = np.zeros((n_seq, chunk_size, 4), dtype=inputs[0].dtype)
         y = np.zeros((n_seq, chunk_size, n_y_cols), dtype=labels[0].dtype)
-        y_transitions = np.zeros((n_seq, chunk_size, 6), dtype=transitions[0].dtype)
         sample_weights = np.zeros((n_seq, chunk_size), dtype=label_masks[0].dtype)
+        gene_lengths = np.zeros((n_seq, chunk_size), dtype=gene_lengths[0].dtype)
+        transitions = np.zeros((n_seq, chunk_size, 6), dtype=transitions[0].dtype)
 
         for j in range(n_seq):
             sample_len = len(inputs[j])
             X[j, :sample_len, :] = inputs[j]
             y[j, :sample_len, :] = labels[j]
-            y_transitions[j, :sample_len, :] = transitions[j]
             sample_weights[j, :sample_len] = label_masks[j]
+            gene_lengths[j, :sample_len] = gene_lengths[j]
+            transitions[j, :sample_len, :] = transitions[j]
 
         err_samples = np.any(sample_weights == 0, axis=1)
         # just one entry per chunk
@@ -89,8 +90,8 @@ class HelixerExportController(object):
 
         # setup keys
         dset_keys = [
-            'X', 'y', 'sample_weights', 'err_samples', 'fully_intergenic_samples', 'start_ends',
-            'species', 'seqids', 'transitions'
+            'X', 'y', 'sample_weights', 'gene_lengths', 'err_samples', 'fully_intergenic_samples',
+            'start_ends', 'species', 'seqids', 'transitions'
         ]
         # append to or create datasets
         if '/data/X' in h5_file:
@@ -119,6 +120,13 @@ class HelixerExportController(object):
                                    maxshape=(None, chunk_size),
                                    chunks=(1, chunk_size),
                                    dtype='int8',
+                                   compression='lzf',
+                                   shuffle=True)
+            h5_file.create_dataset('/data/gene_lengths',
+                                   shape=(n_seq, chunk_size),
+                                   maxshape=(None, chunk_size),
+                                   chunks=(1, chunk_size),
+                                   dtype='uint32',
                                    compression='lzf',
                                    shuffle=True)
             h5_file.create_dataset('/data/err_samples',
@@ -154,8 +162,8 @@ class HelixerExportController(object):
                                    compression='lzf',
                                    shuffle=True)
         # setup array of dsets and add them
-        dsets = [X, y, sample_weights, err_samples, fully_intergenic_samples, start_ends,
-                flat_data['species'], flat_data['seqids'], y_transitions]
+        dsets = [X, y, sample_weights, gene_lengths, err_samples, fully_intergenic_samples, start_ends,
+                flat_data['species'], flat_data['seqids'], transitions]
         for dset_key, data in zip(dset_keys, dsets):
             h5_file['/data/' + dset_key][old_len:] = data
         h5_file.flush()
