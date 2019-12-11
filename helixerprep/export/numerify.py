@@ -102,12 +102,15 @@ class SequenceNumerifier(Numerifier):
         for i, bp in enumerate(self.coord.sequence):
             self.matrix[i] = AMBIGUITY_DECODE[bp]
         # very important to copy here
-        data_plus, error_mask_plus = self._slice_matrix(np.copy(self.matrix),
-                                                        np.copy(self.error_mask),
-                                                        is_plus_strand=True)
+        data_plus, error_mask_plus = self._slice_matrices(True,
+                                                          np.copy(self.matrix),
+                                                          np.copy(self.error_mask))
+
         # minus strand, just flip
         self.matrix = np.flip(self.matrix, axis=1)  # invert base
-        data_minus, error_mask_minus = self._slice_matrix(self.matrix, self.error_mask, False)
+        data_minus, error_mask_minus = self._slice_matrices(False,
+                                                            self.matrix,
+                                                            self.error_mask)
         # put everything together
         data = data_plus + data_minus
         error_masks = error_mask_plus + error_mask_minus
@@ -129,6 +132,8 @@ class AnnotationNumerifier(Numerifier):
         Numerifier.__init__(self, n_cols=3, coord=coord, max_len=max_len, dtype=np.int8)
         self.features = features
         self.one_hot = one_hot
+        # encodes the length of current transcript at that base
+        self.gene_lengths = np.zeros(self.error_mask.shape, dtype=np.uint32)
 
     def coord_to_matrices(self):
         """Always numerifies both strands one after the other."""
@@ -139,24 +144,29 @@ class AnnotationNumerifier(Numerifier):
         combined_data = (plus_strand[i] + minus_strand[i] for i in range(len(plus_strand)))
         return combined_data
 
-    def _encode_strand(self, bool_):
+    def _encode_strand(self, is_plus_strand):
         self._zero_matrix()
-        self._update_matrix_and_error_mask(is_plus_strand=bool_)
+        self._update_matrix_and_error_mask(is_plus_strand=is_plus_strand)
 
+        #  encoding of the actual labels and slicing; generation of error mask and gene length array
         if self.one_hot:
-            self.onehot4_matrix = self._encode_onehot4()
-            labels, error_masks = self._slice_matrix(self.onehot4_matrix,
-                                                     self.error_mask,
-                                                     is_plus_strand=bool_)
+            onehot4_matrix = self._encode_onehot4()
+            labels, error_masks, gene_lengths = self._slice_matrices(is_plus_strand,
+                                                                     onehot4_matrix,
+                                                                     self.error_mask,
+                                                                     self.gene_lengths)
+
         else:
-            labels, error_masks = self._slice_matrix(self.matrix,
-                                                     self.error_mask,
-                                                     is_plus_strand=bool_)
+            labels, error_masks, gene_lengths = self._slice_matrices(is_plus_strand,
+                                                                     self.matrix,
+                                                                     self.error_mask,
+                                                                     self.gene_lengths)
+
+        # encoding of transitions
         binary_transition_matrix = self._encode_transitions()
-        transitions, _ = self._slice_matrix(binary_transition_matrix,
-                                            self.error_mask,
-                                            is_plus_strand=bool_)
-        return labels, error_masks, transitions
+        transitions = self._slice_matrices(is_plus_strand, binary_transition_matrix)
+
+        return labels, error_masks, gene_lengths, transitions
 
     def _update_matrix_and_error_mask(self, is_plus_strand):
         for feature in self.features:
@@ -174,6 +184,12 @@ class AnnotationNumerifier(Numerifier):
                 self.error_mask[start:end] = 0
             else:
                 raise ValueError('Unknown feature type found: {}'.format(feature.type.value))
+            # also fill self.gene_lengths
+            # give precedence for the longer transcript if present
+            if feature.type.value in types.geenuff_transcript_type_values:
+                length_arr = np.full((end - start,), end - start)
+                self.gene_lengths[start:end] = np.maximum(self.gene_lengths[start:end], length_arr)
+
 
     def _encode_onehot4(self):
         # Class order: Intergenic, UTR, CDS, (non-coding Intron), Intron
@@ -220,13 +236,14 @@ class CoordNumerifier(object):
         if not coord_features:
             logging.warning('Sequence {} has no annoations'.format(coord.seqid))
 
+        import pudb; pudb.set_trace()
         anno_numerifier = AnnotationNumerifier(coord=coord, features=coord_features, max_len=max_len,
                                                one_hot=one_hot)
         seq_numerifier = SequenceNumerifier(coord=coord, max_len=max_len)
 
         # returns results for both strands, with the plus strand first in the list
         inputs, input_masks = seq_numerifier.coord_to_matrices()
-        labels, label_masks, transitions = anno_numerifier.coord_to_matrices()
+        labels, label_masks, gene_lengths, transitions = anno_numerifier.coord_to_matrices()
 
         start_ends = anno_numerifier.paired_steps
         # flip the start ends back for - strand and append
@@ -236,8 +253,9 @@ class CoordNumerifier(object):
         out = {
             'inputs': inputs,
             'labels': labels,
-            'transitions': transitions,
             'label_masks': label_masks,
+            'gene_lenghts': gene_lenghts,
+            'transitions': transitions,
             'species': [coord.genome.species.encode('ASCII')] * len(inputs),
             'seqids': [coord.seqid.encode('ASCII')] * len(inputs),
             'start_ends': start_ends,
