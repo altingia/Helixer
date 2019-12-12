@@ -132,8 +132,11 @@ class AnnotationNumerifier(Numerifier):
         Numerifier.__init__(self, n_cols=3, coord=coord, max_len=max_len, dtype=np.int8)
         self.features = features
         self.one_hot = one_hot
-        # encodes the length of current transcript at that base
-        self.gene_lengths = np.zeros((len(coord.sequence),), dtype=np.uint32)
+        self.coord = coord
+        self._zero_gene_lengths()
+
+    def _zero_gene_lengths(self):
+        self.gene_lengths = np.zeros((len(self.coord.sequence),), dtype=np.uint32)
 
     def coord_to_matrices(self):
         """Always numerifies both strands one after the other."""
@@ -146,6 +149,7 @@ class AnnotationNumerifier(Numerifier):
 
     def _encode_strand(self, is_plus_strand):
         self._zero_matrix()
+        self._zero_gene_lengths()
         self._update_matrix_and_error_mask(is_plus_strand=is_plus_strand)
 
         # encoding of transitions
@@ -182,7 +186,7 @@ class AnnotationNumerifier(Numerifier):
                 raise ValueError('Unknown feature type found: {}'.format(feature.type.value))
             # also fill self.gene_lengths
             # give precedence for the longer transcript if present
-            if feature.type.value in types.geenuff_transcript_type_values:
+            if feature.type.value == types.GEENUFF_TRANSCRIPT:
                 length_arr = np.full((end - start,), end - start)
                 self.gene_lengths[start:end] = np.maximum(self.gene_lengths[start:end], length_arr)
 

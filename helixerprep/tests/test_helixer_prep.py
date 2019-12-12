@@ -212,9 +212,9 @@ def test_coherent_slicing():
                                            max_len=100,
                                            one_hot=False)
     seq_slices, seq_error_masks = seq_numerifier.coord_to_matrices()
-    anno_slices, anno_error_masks, _, _ = anno_numerifier.coord_to_matrices()
-    assert (len(seq_slices) == len(anno_slices) == len(anno_error_masks)
-            == len(seq_error_masks) == 19 * 2)
+    anno_slices, anno_error_masks, gene_lengths, transitions = anno_numerifier.coord_to_matrices()
+    assert (len(seq_slices) == len(anno_slices) == len(gene_lengths) == len(transitions) ==
+            len(anno_error_masks) == len(seq_error_masks) == 19 * 2)
 
     for s, a, se, ae in zip(seq_slices, anno_slices, seq_error_masks, anno_error_masks):
         assert s.shape[0] == a.shape[0] == se.shape[0] == ae.shape[0]
@@ -762,3 +762,43 @@ def test_confusion_matrix():
     # test accuracy
     acc_true = accuracy_score(y_pred, y_true)
     assert np.allclose(acc_true, cm._total_accuracy())
+
+
+def test_gene_lengths():
+    """Tests the /data/gene_lengths array"""
+    _, controller, _ = setup_dummyloci()
+    # dump the whole db in chunks into a .h5 file
+    controller.export(chunk_size=5000, genomes='', exclude='', val_size=0.2, one_hot=True,
+                      keep_errors=False, all_transcripts=True)
+
+    f = h5py.File(H5_OUT_FILE, 'r')
+    gl = f['/data/gene_lengths']
+    y = f['/data/y']
+    assert len(gl) == 4  # one for each coord and strand
+
+    # check if there is a value > 0 wherever there is something non-intergenic
+    # genic_gl = np.where(gl[0])[0]
+    # intergenic_y = np.all(y[0] == [1, 0, 0, 0], axis=-1)
+    # genic_y_with_padding = np.any(y[0] == [0, 1, 1, 1], axis=-1)
+    # genic_y = np.logical_xor(intergenic_y, genic_y_with_padding)
+    # assert np.array_equal(genic_gl, genic_y)
+
+    # first coord plus strand (test cases 1-3)
+    assert np.array_equal(gl[0][:400], np.full((400,), 400, dtype=np.uint32))
+    assert np.array_equal(gl[0][400:1199], np.full((1199 - 400,), 0, dtype=np.uint32))
+    assert np.array_equal(gl[0][1199:1400], np.full((1400 - 1199,), 201, dtype=np.uint32))
+
+    # second coord plus strand (test cases 5-6)
+    assert np.array_equal(gl[2][:300], np.full((300,), 300, dtype=np.uint32))
+    assert np.array_equal(gl[2][300:549], np.full((549 - 300,), 0, dtype=np.uint32))
+    assert np.array_equal(gl[2][549:750], np.full((750 - 549,), 201, dtype=np.uint32))
+
+    # second coord minus strand (test cases 7-8)
+    # check 0-padding
+    assert np.array_equal(gl[3][-(5000 - 1755):], np.full((5000 - 1755,), 0, dtype=np.uint32))
+    # check genic regions
+    gl_3 = np.flip(gl[3])[5000 - 1755:]
+    assert np.array_equal(gl_3[:949], np.full((949,), 0, dtype=np.uint32))
+    assert np.array_equal(gl_3[949:1350], np.full((1350 - 949,), 401, dtype=np.uint32))
+    assert np.array_equal(gl_3[1350:1549], np.full((1549 - 1350,), 0, dtype=np.uint32))
+    assert np.array_equal(gl_3[1549:1750], np.full((1750 - 1549,), 201, dtype=np.uint32))

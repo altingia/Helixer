@@ -72,7 +72,10 @@ class HelixerExportController(object):
             # the first 5 keys in dsets match the 5 numerify keys
             # can be done since dicts keep their insert order since 3.6
             d = flat_data[num_key]
-            padded_d = np.zeros((n_seqs,) + d[0].shape, dtype=d[0].dtype)
+            shape = (n_seqs, chunk_size)
+            if len(d[0].shape) == 2:
+                shape += (d[0].shape[1],)
+            padded_d = np.zeros(shape, dtype=d[0].dtype)
             for j in range(n_seqs):
                 padded_d[j, :len(d[j])] = d[j]
             dsets[dset_keys[i]] = padded_d
