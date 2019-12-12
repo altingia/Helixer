@@ -212,7 +212,7 @@ def test_coherent_slicing():
                                            max_len=100,
                                            one_hot=False)
     seq_slices, seq_error_masks = seq_numerifier.coord_to_matrices()
-    anno_slices, anno_error_masks, _ = anno_numerifier.coord_to_matrices()
+    anno_slices, anno_error_masks, _, _ = anno_numerifier.coord_to_matrices()
     assert (len(seq_slices) == len(anno_slices) == len(anno_error_masks)
             == len(seq_error_masks) == 19 * 2)
 
@@ -379,9 +379,9 @@ def test_numerify_with_end_neg1():
                                           one_hot=False)
 
         if is_plus_strand:
-            nums, masks, _ = [x[0] for x in numerifier.coord_to_matrices()]
+            nums, masks, _, _ = [x[0] for x in numerifier.coord_to_matrices()]
         else:
-            nums, masks, _ = [x[1] for x in numerifier.coord_to_matrices()]
+            nums, masks, _, _ = [x[1] for x in numerifier.coord_to_matrices()]
 
         if not np.array_equal(nums, expect):
             for i in range(nums.shape[0]):
