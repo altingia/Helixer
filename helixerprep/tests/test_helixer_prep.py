@@ -765,7 +765,7 @@ def test_confusion_matrix():
 
 
 def test_gene_lengths():
-    """Tests the /data/gene_lengths array"""
+    """Tests the '/data/gene_lengths' array"""
     _, controller, _ = setup_dummyloci()
     # dump the whole db in chunks into a .h5 file
     controller.export(chunk_size=5000, genomes='', exclude='', val_size=0.2, one_hot=True,
@@ -776,12 +776,14 @@ def test_gene_lengths():
     y = f['/data/y']
     assert len(gl) == 4  # one for each coord and strand
 
-    # check if there is a value > 0 wherever there is something non-intergenic
-    # genic_gl = np.where(gl[0])[0]
-    # intergenic_y = np.all(y[0] == [1, 0, 0, 0], axis=-1)
-    # genic_y_with_padding = np.any(y[0] == [0, 1, 1, 1], axis=-1)
-    # genic_y = np.logical_xor(intergenic_y, genic_y_with_padding)
-    # assert np.array_equal(genic_gl, genic_y)
+    # check if there is a value > 0 wherever there is something genic
+    for i in range(len(gl)):
+        genic_gl = gl[i] > 0
+        utr_y = np.all(y[i] == [0, 1, 0, 0], axis=-1)
+        exon_y = np.all(y[i] == [0, 0, 1, 0], axis=-1)
+        intron_y = np.all(y[i] == [0, 0, 0, 1], axis=-1)
+        genic_y = np.logical_or(np.logical_or(utr_y, exon_y), intron_y)
+        assert np.array_equal(genic_gl, genic_y)
 
     # first coord plus strand (test cases 1-3)
     assert np.array_equal(gl[0][:400], np.full((400,), 400, dtype=np.uint32))
