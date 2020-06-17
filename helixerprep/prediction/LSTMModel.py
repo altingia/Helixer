@@ -28,7 +28,8 @@ class LSTMSequence(HelixerSequence):
         assert y.shape[1] % pool_size == 0, 'pooling size has to evenly divide seq len'
 
         # augment first, before anything else
-        X, y, sw = self._augment(X, y, sw)
+        if self.augment:
+            X, y, sw = self._augment(X, y, sw)
 
         X = X.reshape((
             X.shape[0],

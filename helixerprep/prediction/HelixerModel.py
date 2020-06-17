@@ -81,7 +81,8 @@ class HelixerSequence(Sequence):
         self.model = model
         self.h5_file = h5_file
         self.mode = mode
-        self._cp_into_namespace(['batch_size', 'float_precision', 'class_weights', 'transition_weights','stretch_transition_weights','coverage','coverage_scaling',
+        self._cp_into_namespace(['batch_size', 'float_precision', 'class_weights', 'augment',
+                                 'transition_weights','stretch_transition_weights','coverage','coverage_scaling',
                                  'overlap', 'overlap_offset', 'core_length', 'min_seqs_for_overlapping',
                                  'debug', 'exclude_errors', 'error_weights', 'gene_lengths',
                                  'gene_lengths_average', 'gene_lengths_exponent', 'gene_lengths_cutoff'])
@@ -204,7 +205,6 @@ class HelixerSequence(Sequence):
 
     def _augment(self, X, y, sw):
         # randomly change every 10th intergenic base (could result in the same base)
-        import pudb; pudb.set_trace()
         ig_bases = y[:,:,0] == 1
         chances = np.random.rand(*y.shape[:2]) < 0.1
         change_bases = np.logical_and(ig_bases, chances)
@@ -245,6 +245,7 @@ class HelixerModel(ABC):
         self.parser.add_argument('-cov','--coverage',action='store_true')
         self.parser.add_argument('-covs','--coverage-scaling', type=float, default=0.1)
         self.parser.add_argument('-can', '--canary-dataset', type=str, default='')
+        self.parser.add_argument('-aug', '--augment', action='store_true')
         self.parser.add_argument('-res', '--resume-training', action='store_true')
         self.parser.add_argument('-ee', '--exclude-errors', action='store_true')
         self.parser.add_argument('-ew', '--error-weights', action='store_true')
@@ -318,11 +319,12 @@ class HelixerModel(ABC):
         return callbacks
 
     def set_resources(self):
-        from keras.backend.tensorflow_backend import set_session
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
-        sess = tf.Session(config=config)
-        set_session(sess)  # set this TensorFlow session as the default session for Keras
+        # commented out for now as it caused issued when using gpu-id 1
+        # from keras.backend.tensorflow_backend import set_session
+        # config = tf.ConfigProto()
+        # config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+        # sess = tf.Session(config=config)
+        # set_session(sess)  # set this TensorFlow session as the default session for Keras
 
         K.set_floatx(self.float_precision)
         if self.gpu_id > -1:
