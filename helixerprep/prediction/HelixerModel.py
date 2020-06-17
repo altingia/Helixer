@@ -202,6 +202,18 @@ class HelixerSequence(Sequence):
             n_seqs = len(self.usable_idx) % n_seqs  # calculate overhang when at the end
         return int(n_seqs)
 
+    def _augment(self, X, y, sw):
+        # randomly change every 10th intergenic base (could result in the same base)
+        import pudb; pudb.set_trace()
+        ig_bases = y[:,:,0] == 1
+        chances = np.random.rand(*y.shape[:2]) < 0.1
+        change_bases = np.logical_and(ig_bases, chances)
+        # select one row of the identity array for a new base
+        new_bases_idx = np.random.choice(np.arange(4), size=y.shape[:2])
+        new_bases = np.eye(4)[new_bases_idx]
+        X[change_bases] = new_bases[change_bases]
+        return X, y, sw
+
     def __len__(self):
         if self.debug:
             return 1
