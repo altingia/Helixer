@@ -206,8 +206,10 @@ class HelixerSequence(Sequence):
     def _augment(self, X, y, sw):
         # randomly change every 10th intergenic base (could result in the same base)
         ig_bases = y[:,:,0] == 1
-        chances = np.random.rand(*y.shape[:2]) < 0.1
-        change_bases = np.logical_and(ig_bases, chances)
+        seqs_chances = np.random.rand(y.shape[0]) < 0.1
+        seqs_chances = np.repeat(seqs_chances[:,None], y.shape[1], axis=1)
+        bases_chances = np.random.rand(*y.shape[:2]) < 0.01
+        change_bases = seqs_chances * ig_bases * bases_chances  # should be logical AND
         # select one row of the identity array for a new base
         new_bases_idx = np.random.choice(np.arange(4), size=y.shape[:2])
         new_bases = np.eye(4)[new_bases_idx]

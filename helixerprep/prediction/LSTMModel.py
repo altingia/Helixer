@@ -27,8 +27,8 @@ class LSTMSequence(HelixerSequence):
         assert pool_size > 1, 'pooling size of <= 1 oh oh..'
         assert y.shape[1] % pool_size == 0, 'pooling size has to evenly divide seq len'
 
-        # augment first, before anything else
-        if self.augment:
+        # augment first, before anything else and only during training
+        if self.augment and mode == 'train':
             X, y, sw = self._augment(X, y, sw)
 
         X = X.reshape((
