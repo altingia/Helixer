@@ -4,7 +4,7 @@ import numpy as np
 from keras_layer_normalization import LayerNormalization
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (Conv1D, LSTM, Dense, Bidirectional, MaxPooling1D, Dropout, Reshape,
-                                     Activation, Input, BatchNormalization)
+                                     Activation, Input, BatchNormalization, concatenate)
 from HelixerModel import HelixerModel, HelixerSequence
 
 
@@ -75,11 +75,14 @@ class DanQSequence(HelixerSequence):
 class DanQModel(HelixerModel):
     def __init__(self):
         super().__init__()
-        self.parser.add_argument('--cnn-layers', type=int, default=1)
+        self.parser.add_argument('--cnn-layers-left', type=int, default=1)
+        self.parser.add_argument('--filter-depth-left', type=int, default=32)
+        self.parser.add_argument('--kernel-size-left', type=int, default=26)
+        self.parser.add_argument('--cnn-layers-right', type=int, default=3)
+        self.parser.add_argument('--filter-depth-right', type=int, default=32)
+        self.parser.add_argument('--kernel-size-right', type=int, default=3)
         self.parser.add_argument('--lstm-layers', type=int, default=1)
         self.parser.add_argument('--units', type=int, default=32)
-        self.parser.add_argument('--filter-depth', type=int, default=32)
-        self.parser.add_argument('--kernel-size', type=int, default=26)
         self.parser.add_argument('--pool-size', type=int, default=10)
         self.parser.add_argument('--dropout1', type=float, default=0.0)
         self.parser.add_argument('--dropout2', type=float, default=0.0)
@@ -94,22 +97,39 @@ class DanQModel(HelixerModel):
         overhang = self.shape_train[1] % self.pool_size
         main_input = Input(shape=(None, 4), dtype=self.float_precision,
                            name='main_input')
-        x = Conv1D(filters=self.filter_depth,
-                   kernel_size=self.kernel_size,
-                   padding="same",
-                   activation="relu")(main_input)
+
+        # left stream
+        x1 = Conv1D(filters=self.filter_depth_left,
+                    kernel_size=self.kernel_size_left,
+                    padding="same",
+                    activation="relu")(main_input)
 
         # if there are additional CNN layers
-        for _ in range(self.cnn_layers - 1):
-            x = BatchNormalization()(x)
-            x = Conv1D(filters=self.filter_depth,
-                       kernel_size=self.kernel_size,
-                       padding="same",
-                       activation="relu")(x)
+        for _ in range(self.cnn_layers_left - 1):
+            x1 = BatchNormalization()(x1)
+            x1 = Conv1D(filters=self.filter_depth_left,
+                        kernel_size=self.kernel_size_left,
+                        padding="same",
+                        activation="relu")(x1)
+
+        # right stream
+        x2 = Conv1D(filters=self.filter_depth_right,
+                    kernel_size=self.kernel_size_right,
+                    padding="same",
+                    activation="relu")(main_input)
+
+        # if there are additional CNN layers
+        for _ in range(self.cnn_layers_right - 1):
+            x2 = BatchNormalization()(x2)
+            x2 = Conv1D(filters=self.filter_depth_right,
+                        kernel_size=self.kernel_size_right,
+                        padding="same",
+                        activation="relu")(x2)
+
+        x = concatenate([x1, x2], axis=-2)  # concatenate along filter depth dim (hopefully)
 
         if self.pool_size > 1:
             x = Reshape((-1, self.pool_size * self.filter_depth))(x)
-            # x = MaxPooling1D(pool_size=self.pool_size, padding='same')(x)
 
         if self.layer_normalization:
             x = LayerNormalization()(x)
