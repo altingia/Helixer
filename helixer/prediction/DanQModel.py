@@ -126,10 +126,11 @@ class DanQModel(HelixerModel):
                         padding="same",
                         activation="relu")(x2)
 
-        x = concatenate([x1, x2], axis=-2)  # concatenate along filter depth dim (hopefully)
+        x = concatenate([x1, x2], axis=-1)  # concatenate along filter depth dim (hopefully)
 
         if self.pool_size > 1:
-            x = Reshape((-1, self.pool_size * self.filter_depth))(x)
+            n_filters_total = self.filter_depth_left + self.filter_depth_right
+            x = Reshape((-1, self.pool_size * n_filters_total))(x)
 
         if self.layer_normalization:
             x = LayerNormalization()(x)
